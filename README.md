@@ -1,9 +1,60 @@
-### Well hello there!
+import { chromium, Browser, Page } from 'playwright-chromium';
+import * as fs from 'fs';
 
-This repository is meant to provide an example for *forking* a repository on GitHub.
+interface Product {
+  name: string;
+  price: string;
+  link: string;
+}
 
-Creating a *fork* is producing a personal copy of someone else's project. Forks act as a sort of bridge between the original repository and your personal copy. You can submit *Pull Requests* to help make other people's projects better by offering your changes up to the original project. Forking is at the core of social coding at GitHub.
+class ECommerceScraper {
+  private browser: Browser;
+  private page: Page;
 
-After forking this repository, you can make some changes to the project, and submit [a Pull Request](https://github.com/octocat/Spoon-Knife/pulls) as practice.
+  constructor(private baseUrl: string) {}
 
-For some more information on how to fork a repository, [check out our guide, "Forking Projects""](http://guides.github.com/overviews/forking/). Thanks! :sparkling_heart:
+  async initialize() {
+    this.browser = await chromium.launch();
+    this.page = await this.browser.newPage();
+  }
+
+  async searchAndScrape(searchTerm: string, numberOfProducts: number): Promise<Product[]> {
+    const url = `${this.baseUrl}/s?k=${searchTerm}`;
+    await this.page.goto(url);
+
+    const products = await this.page.$$('.s-result-item');
+
+    const productData: Product[] = [];
+
+    for (const product of products) {
+      const name = await product.$eval('.a-text-normal', el => el.textContent);
+      const price = await product.$eval('.a-price .a-offscreen', el => el.textContent);
+      const link = await product.$eval('a.a-link-normal', el => el.getAttribute('href'));
+
+      productData.push({ name, price, link });
+    }
+
+    productData.sort((a, b) => parseFloat(a.price) - parseFloat(b.price));
+
+    return productData.slice(0, numberOfProducts);
+  }
+
+  async close() {
+    await this.browser.close();
+  }
+}
+
+(async () => {
+  const scraper = new ECommerceScraper('https://www.amazon.com');
+  await scraper.initialize();
+
+  const searchTerm = 'laptop'; // Change this to your desired search term
+  const numberOfProducts = 3;
+
+  const products = await scraper.searchAndScrape(searchTerm, numberOfProducts);
+
+  const csvData = products.map(product => `${product.name},${product.price},${searchTerm},${scraper.baseUrl}${product.link}`).join('\n');
+  fs.writeFileSync('products.csv', csvData, 'utf-8');
+
+  await scraper.close();
+})();
